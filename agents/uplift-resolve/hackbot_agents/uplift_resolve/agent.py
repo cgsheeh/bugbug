@@ -54,6 +54,8 @@ SYSTEM_PROMPT = {"type": "preset", "preset": "claude_code"}
 
 # Agent images configure no git identity, and `git commit` refuses to run
 # without one. A cherry-pick still keeps the author of the commit it replays.
+# The SDK layers `ClaudeAgentOptions.env` over `os.environ`, so nothing else
+# the session inherits, such as the API key, is dropped.
 GIT_IDENTITY_ENV = {
     "GIT_AUTHOR_NAME": "Hackbot",
     "GIT_AUTHOR_EMAIL": "hackbot@mozilla.tld",
