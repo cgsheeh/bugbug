@@ -127,6 +127,16 @@ JOBS_TO_IGNORE = (
 )
 
 
+# Manifests of suites which are scheduled as whole tasks rather than by manifest
+# (e.g. jsreftest, whose tasks are in JOBS_TO_IGNORE).
+GROUPS_TO_IGNORE = ("jstests.list",)
+
+
+def is_ignored_group(runnable: Runnable) -> bool:
+    group = runnable[1] if isinstance(runnable, tuple) else runnable
+    return os.path.basename(group) in GROUPS_TO_IGNORE
+
+
 class UnexpectedGranularityError(ValueError):
     def __init__(self, granularity):
         message = f"Unexpected {granularity} granularity"
@@ -146,7 +156,11 @@ def filter_runnables(
             and not any(j in task for j in JOBS_TO_IGNORE)
         )
     else:
-        return tuple(runnable for runnable in runnables if runnable in all_runnables)
+        return tuple(
+            runnable
+            for runnable in runnables
+            if runnable in all_runnables and not is_ignored_group(runnable)
+        )
 
 
 def rename_task(task: str) -> str:
@@ -757,6 +771,24 @@ def _read_and_update_past_failures(
     )
 
 
+WPT_ROOTS = ("testing/web-platform/mozilla", "testing/web-platform")
+
+
+def get_runnable_dirs(group: str) -> tuple[str, ...]:
+    """Return the directories whose co-changes are relevant for a group.
+
+    Manifest groups are files, so their tests are in the manifest's directory.
+    WPT groups are the directories containing the tests, and their expectations
+    live in the corresponding directory under meta/ (which is what usually
+    changes together with Gecko code, as tests mostly come from upstream).
+    """
+    for root in WPT_ROOTS:
+        if group.startswith(f"{root}/tests/"):
+            return (group, f"{root}/meta/{group[len(root) + len('/tests/') :]}")
+
+    return (os.path.dirname(group),)
+
+
 def generate_data(
     granularity: str,
     past_failures: PastFailures,
@@ -773,18 +805,19 @@ def generate_data(
 
     for runnable in runnables:
         if granularity != "label":
-            if isinstance(runnable, tuple):
-                runnable_dir = os.path.dirname(runnable[1])
-            else:
-                runnable_dir = os.path.dirname(runnable)
+            runnable_dirs = get_runnable_dirs(
+                runnable[1] if isinstance(runnable, tuple) else runnable
+            )
 
             touched_together_files = sum(
                 get_touched_together(source_file, runnable_dir)
                 for source_file in commit["files"]
+                for runnable_dir in runnable_dirs
             )
             touched_together_directories = sum(
                 get_touched_together(source_file_dir, runnable_dir)
                 for source_file_dir in source_file_dirs
+                for runnable_dir in runnable_dirs
             )
 
         is_possible_regression = runnable in possible_regressions
